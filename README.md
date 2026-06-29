@@ -1,5 +1,11 @@
 # Upstream Ratio Watch
 
+## 技术交流群
+
+QQ群：`259844673`
+
+<img width="280" height="265" alt="技术交流群" src="https://github.com/user-attachments/assets/a24f9f9b-0dfa-440e-8ee8-6e461d03eeea" />
+
 一个用于监控上游 AI 服务分组倍率变化的轻量级 Web 管理面板。
 
 第一版主要支持 NewAPI 兼容站点，后续可以继续扩展 sub2api 等其他上游类型。项目适合少量上游站点的日常监控，不包含批量注册、账号批量操作等功能。
