@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import smtplib
 import sqlite3
 import threading
@@ -25,6 +26,8 @@ DEFAULT_INTERVAL_MINUTES = 3
 MIN_INTERVAL_MINUTES = 1
 HTTP_TIMEOUT_SECONDS = 15
 SCAN_INTERVAL_SECONDS = 10
+SERVER_HOST = os.getenv("HOST", "127.0.0.1")
+SERVER_PORT = int(os.getenv("PORT", "8000"))
 
 DB_LOCK = threading.RLock()
 STOP_EVENT = threading.Event()
@@ -1330,8 +1333,8 @@ def main() -> None:
     worker = threading.Thread(target=schedule_worker, daemon=True)
     worker.start()
 
-    server = ThreadingHTTPServer(("127.0.0.1", 8000), Handler)
-    print("Upstream Ratio Watch running at http://127.0.0.1:8000")
+    server = ThreadingHTTPServer((SERVER_HOST, SERVER_PORT), Handler)
+    print(f"Upstream Ratio Watch running at http://{SERVER_HOST}:{SERVER_PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

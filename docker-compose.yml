@@ -1,0 +1,12 @@
+services:
+  upstream-ratio-watch:
+    build: .
+    container_name: upstream-ratio-watch
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data

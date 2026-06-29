@@ -15,7 +15,50 @@
 - 支持 SMTP 邮箱推送变化提醒
 - Python 标准库后端，静态 HTML/CSS/JS 前端
 
-## 启动
+## Docker 部署
+
+推荐使用 Docker 部署，适合放在 VPS、云服务器、NAS 或 1Panel / 宝塔这类面板里长期运行。
+
+```bash
+docker compose up -d
+```
+
+启动后访问：
+
+```text
+http://服务器IP:8000
+```
+
+默认会把运行数据保存到项目目录下的 `data/`：
+
+```text
+./data:/app/data
+```
+
+这里会保存 SQLite 数据库、站点配置、系统访问令牌、SMTP 配置和监控历史。升级或重建容器前，请保留这个目录。
+
+如果服务器已经占用 8000 端口，可以修改 `docker-compose.yml`：
+
+```yaml
+ports:
+  - "18000:8000"
+```
+
+然后访问：
+
+```text
+http://服务器IP:18000
+```
+
+常用命令：
+
+```bash
+docker compose logs -f
+docker compose restart
+docker compose down
+```
+
+## 本地启动
 
 ```bash
 python app.py
@@ -25,6 +68,12 @@ python app.py
 
 ```text
 http://127.0.0.1:8000
+```
+
+本地默认监听 `127.0.0.1:8000`。如果需要指定监听地址或端口，可以设置环境变量：
+
+```bash
+HOST=0.0.0.0 PORT=8000 python app.py
 ```
 
 ## 添加站点
