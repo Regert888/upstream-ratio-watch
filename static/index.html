@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NewAPI Price Watch</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">N</div>
+        <div>
+          <div class="brand-name">NewAPI Price Watch</div>
+          <div class="brand-sub">上游倍率监控中心</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" type="button" data-view-target="overview">总览</button>
+        <button class="nav-item" type="button" data-view-target="sites">站点监控</button>
+        <button class="nav-item" type="button" data-view-target="detail">站点详情</button>
+        <button class="nav-item" type="button" data-view-target="changes">变化记录</button>
+        <button class="nav-item" type="button" data-view-target="notifications">消息推送</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="muted">监控对象</div>
+        <div id="sidebar-count" class="sidebar-count">0</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="page-title">上游分组倍率监控</div>
+          <div class="page-subtitle">定时采集 NewAPI 的 /api/user/groups，发现分组、倍率、描述变化。</div>
+        </div>
+        <div class="topbar-actions">
+          <button id="refreshBtn" class="btn btn-secondary">刷新</button>
+          <button id="addSiteBtn" class="btn btn-primary">添加站点</button>
+        </div>
+      </header>
+
+      <section class="view active" data-view="overview">
+        <section class="stats-grid" id="overview">
+          <div class="stat-card"><div class="stat-label">监控站点</div><div class="stat-value" id="stat-sites">0</div></div>
+          <div class="stat-card"><div class="stat-label">启用中</div><div class="stat-value" id="stat-enabled">0</div></div>
+          <div class="stat-card"><div class="stat-label">正常</div><div class="stat-value ok" id="stat-ok">0</div></div>
+          <div class="stat-card"><div class="stat-label">异常</div><div class="stat-value bad" id="stat-failed">0</div></div>
+          <div class="stat-card"><div class="stat-label">今日变化</div><div class="stat-value" id="stat-changes">0</div></div>
+        </section>
+        <section class="overview-grid">
+          <section class="panel panel-list compact-panel">
+            <div class="panel-head">
+              <div>
+                <h2>站点概览</h2>
+                <p>最近检测状态和分组数量。</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table site-table">
+                <thead>
+                  <tr>
+                    <th>站点</th>
+                    <th>状态</th>
+                    <th>隐藏分组</th>
+                    <th>分组</th>
+                    <th>上次检测</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewSitesBody"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel compact-panel">
+            <div class="panel-head">
+              <div>
+                <h2>最近变化</h2>
+                <p>最新倍率和分组变化。</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table change-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>站点</th>
+                    <th>类型</th>
+                    <th>分组</th>
+                    <th>变化</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewChangesBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section class="view" data-view="sites">
+        <section class="panel panel-list" id="sites">
+          <div class="panel-head">
+            <div>
+              <h2>站点列表</h2>
+              <p>少量上游手动维护，每个站点单独设置监控间隔和认证增强。</p>
+            </div>
+            <div class="toolbar">
+              <input id="searchInput" class="input" type="search" placeholder="搜索站点或地址" />
+              <select id="statusFilter" class="input">
+                <option value="">全部状态</option>
+                <option value="ok">正常</option>
+                <option value="warning">警告</option>
+                <option value="failed">异常</option>
+                <option value="unknown">未知</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table site-table">
+              <thead>
+                <tr>
+                  <th>站点</th>
+                  <th>状态</th>
+                  <th>隐藏分组</th>
+                  <th>分组</th>
+                  <th>上次检测</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="sitesBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="detail">
+        <aside class="panel detail-panel" id="detailSection">
+          <div class="panel-head">
+            <div>
+              <h2>站点详情</h2>
+              <p id="detailSubtitle">选择一个站点查看当前倍率、隐藏分组和历史变化。</p>
+            </div>
+          </div>
+          <div id="detailPane" class="detail-empty">还没有选中站点</div>
+        </aside>
+      </section>
+
+      <section class="view" data-view="changes">
+        <section class="panel" id="changes">
+          <div class="panel-head">
+            <div>
+              <h2>全局变化记录</h2>
+              <p>所有站点最近变化，方便快速扫一眼是否有上游改价。</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table change-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>站点</th>
+                  <th>类型</th>
+                  <th>分组</th>
+                  <th>变化</th>
+                </tr>
+              </thead>
+              <tbody id="changesBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="notifications">
+        <section class="panel" id="notifications">
+          <div class="panel-head">
+            <div>
+              <h2>消息推送</h2>
+              <p>当前先支持邮箱推送，检测到倍率或分组变化后自动发送提醒。</p>
+            </div>
+          </div>
+          <form id="notifyForm" class="notify-form">
+            <div class="notify-compact-head">
+              <label class="field switch-row">
+                <span>启用邮箱推送</span>
+                <input id="emailEnabled" type="checkbox" />
+              </label>
+              <label class="field switch-row">
+                <span>使用 SSL</span>
+                <input id="smtpUseSsl" type="checkbox" checked />
+              </label>
+            </div>
+            <div class="notify-grid">
+              <label class="field">
+                <span>SMTP 服务器</span>
+                <input id="smtpHost" class="input" autocomplete="off" placeholder="smtp.example.com" />
+              </label>
+              <label class="field">
+                <span>端口</span>
+                <input id="smtpPort" class="input" type="number" min="1" value="465" />
+              </label>
+              <label class="field">
+                <span>邮箱账号</span>
+                <input id="smtpUsername" class="input" autocomplete="username" />
+              </label>
+              <label class="field">
+                <span>邮箱授权码或密码</span>
+                <input id="smtpPassword" class="input" type="password" autocomplete="current-password" placeholder="编辑时留空表示不修改" />
+              </label>
+              <label class="field">
+                <span>发件人</span>
+                <input id="smtpFrom" class="input" autocomplete="email" placeholder="默认使用邮箱账号" />
+              </label>
+              <label class="field">
+                <span>收件人</span>
+                <input id="smtpTo" class="input" autocomplete="email" placeholder="多个邮箱用逗号分隔" />
+              </label>
+            </div>
+            <div class="notify-footer">
+              <div>
+                <p class="field-help">常见配置：SSL 端口 465；STARTTLS 可关闭 SSL 后使用 587。</p>
+                <div class="notify-status" id="notifyStatus">未配置</div>
+              </div>
+              <div class="dialog-actions">
+                <button type="submit" class="btn btn-primary">保存配置</button>
+                <button id="testEmailBtn" type="button" class="btn btn-secondary">测试邮件</button>
+              </div>
+            </div>
+          </form>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="siteDialog" class="dialog">
+    <form id="siteForm" method="dialog" class="dialog-card">
+      <div class="dialog-head">
+        <h3 id="dialogTitle">添加站点</h3>
+        <button id="closeDialogBtn" class="icon-btn" type="button" aria-label="关闭">×</button>
+      </div>
+      <input type="hidden" id="siteId" />
+      <label class="field">
+        <span>站点名称</span>
+        <input id="siteName" class="input" required maxlength="80" />
+      </label>
+      <label class="field">
+        <span>Base URL</span>
+        <input id="siteBaseUrl" class="input" required placeholder="https://example.com" />
+      </label>
+      <label class="field">
+        <span>监控间隔（分钟）</span>
+        <input id="siteInterval" class="input" type="number" min="1" value="3" />
+      </label>
+      <div class="form-section">
+        <label class="field switch-row">
+          <span>认证增强监控</span>
+          <input id="siteLoginEnabled" type="checkbox" />
+        </label>
+        <p class="field-help">填写系统访问令牌和 NewAPI 用户 ID 后，可查看该账号可见的隐藏用户分组或专属分组。</p>
+        <div id="loginFields" class="login-fields hidden">
+          <label class="field">
+            <span>系统访问令牌</span>
+            <input id="siteAccessToken" class="input" type="password" autocomplete="off" placeholder="编辑时留空表示不修改令牌" />
+          </label>
+          <label class="field">
+            <span>NewAPI 用户 ID</span>
+            <input id="siteAccessUserId" class="input" inputmode="numeric" placeholder="例如：4" />
+          </label>
+        </div>
+      </div>
+      <label class="field switch-row">
+        <span>启用监控</span>
+        <input id="siteEnabled" type="checkbox" checked />
+      </label>
+      <div class="dialog-actions">
+        <button id="testConnBtn" type="button" class="btn btn-secondary">测试连接</button>
+        <button id="testLoginBtn" type="button" class="btn btn-secondary">测试认证</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+      <div id="dialogMsg" class="dialog-msg"></div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>
