@@ -255,7 +255,7 @@ def json_request(
     request_headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "NewAPI-Price-Watch/1.0",
+        "User-Agent": "Upstream-Ratio-Watch/1.0",
     }
     if headers:
         request_headers.update(headers)
@@ -321,7 +321,7 @@ def fetch_newapi_groups(base_url: str) -> Tuple[bool, Dict[str, Any], Optional[s
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "NewAPI-Price-Watch/1.0",
+            "User-Agent": "Upstream-Ratio-Watch/1.0",
         },
         method="GET",
     )
@@ -349,7 +349,7 @@ def fetch_newapi_groups_with_access_token(base_url: str, access_token: str, user
 
     headers = {
         "Accept": "application/json",
-        "User-Agent": "NewAPI-Price-Watch/1.0",
+        "User-Agent": "Upstream-Ratio-Watch/1.0",
         "Authorization": token.removeprefix("Bearer ").removeprefix("bearer ").strip(),
     }
     if str(user_id or "").strip():
@@ -1331,7 +1331,7 @@ def main() -> None:
     worker.start()
 
     server = ThreadingHTTPServer(("127.0.0.1", 8000), Handler)
-    print("NewAPI Price Watch running at http://127.0.0.1:8000")
+    print("Upstream Ratio Watch running at http://127.0.0.1:8000")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,6 +1,8 @@
-# NewAPI Price Watch
+# Upstream Ratio Watch
 
-NewAPI Price Watch is a small Python web dashboard for monitoring NewAPI upstream group ratios. It is designed for a few manually managed upstream sites, not bulk registration or account farming.
+Upstream Ratio Watch is a small Python web dashboard for monitoring upstream AI provider group ratios. It is designed for a few manually managed upstream sites, not bulk registration or account farming.
+
+The first release supports NewAPI-compatible group ratio monitoring. The project name is intentionally generic so other upstream formats, such as sub2api, can be added later.
 
 ## Features
 
@@ -42,4 +44,5 @@ Email notification uses SMTP settings configured in the web UI:
 
 - Default monitor interval is 3 minutes.
 - Minimum monitor interval is 1 minute.
-- This project currently focuses on NewAPI-compatible group ratio monitoring.
+- Current adapter: NewAPI-compatible group ratio monitoring.
+- Planned adapter direction: sub2api group ratio monitoring.
