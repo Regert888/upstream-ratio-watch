@@ -38,14 +38,20 @@ const els = {
   sitePlatform: document.getElementById('sitePlatform'),
   siteBaseUrl: document.getElementById('siteBaseUrl'),
   siteInterval: document.getElementById('siteInterval'),
+  siteAuthMode: document.getElementById('siteAuthMode'),
   siteLoginEnabled: document.getElementById('siteLoginEnabled'),
   siteLoginUsername: document.getElementById('siteLoginUsername'),
   siteLoginPassword: document.getElementById('siteLoginPassword'),
   siteAccessToken: document.getElementById('siteAccessToken'),
+  siteSub2apiAccessToken: document.getElementById('siteSub2apiAccessToken'),
+  siteRefreshToken: document.getElementById('siteRefreshToken'),
+  siteTokenExpiresAt: document.getElementById('siteTokenExpiresAt'),
   siteAccessUserId: document.getElementById('siteAccessUserId'),
   loginFields: document.getElementById('loginFields'),
   newapiAuthSection: document.getElementById('newapiAuthSection'),
   sub2apiAuthSection: document.getElementById('sub2apiAuthSection'),
+  sub2apiPasswordFields: document.getElementById('sub2apiPasswordFields'),
+  sub2apiTokenFields: document.getElementById('sub2apiTokenFields'),
   siteEnabled: document.getElementById('siteEnabled'),
   dialogMsg: document.getElementById('dialogMsg'),
   testConnBtn: document.getElementById('testConnBtn'),
@@ -121,6 +127,16 @@ function setLoginFieldsVisible(visible) {
   els.loginFields.classList.toggle('hidden', !visible);
 }
 
+function sub2apiAuthMode() {
+  return els.siteAuthMode.value || 'password';
+}
+
+function updateSub2apiAuthFields() {
+  const tokenMode = sub2apiAuthMode() === 'token';
+  els.sub2apiPasswordFields.classList.toggle('hidden', tokenMode);
+  els.sub2apiTokenFields.classList.toggle('hidden', !tokenMode);
+}
+
 function platformLabel(siteOrValue) {
   const value = typeof siteOrValue === 'string' ? siteOrValue : (siteOrValue?.platform || 'newapi');
   return value === 'sub2api' ? 'sub2api' : 'NewAPI';
@@ -131,7 +147,8 @@ function updatePlatformFields() {
   const isSub2api = platform === 'sub2api';
   els.newapiAuthSection.classList.toggle('hidden', isSub2api);
   els.sub2apiAuthSection.classList.toggle('hidden', !isSub2api);
-  els.testLoginBtn.textContent = isSub2api ? '测试登录' : '测试认证';
+  updateSub2apiAuthFields();
+  els.testLoginBtn.textContent = isSub2api ? (sub2apiAuthMode() === 'token' ? '测试登录态' : '测试登录') : '测试认证';
   if (isSub2api) {
     els.siteLoginEnabled.checked = true;
     setLoginFieldsVisible(false);
@@ -371,11 +388,11 @@ function renderDetail(site) {
       <div class="meta-card"><div class="k">下次检测</div><div class="v">${fmtTime(site.next_check_at)}</div></div>
       <div class="meta-card"><div class="k">连续失败</div><div class="v">${site.consecutive_failures || 0}</div></div>
       <div class="meta-card"><div class="k">启用状态</div><div class="v">${site.enabled ? '启用中' : '已停用'}</div></div>
-      <div class="meta-card wide"><div class="k">监控模式</div><div class="v">${site.platform === 'sub2api' ? `sub2api 用户分组监控（${escapeHtml(site.login_username || '-')}）` : site.login_enabled ? `认证增强监控（系统访问令牌 / 用户ID ${escapeHtml(site.access_user_id || '-')}）` : '公开分组监控'}</div></div>
+      <div class="meta-card wide"><div class="k">监控模式</div><div class="v">${site.platform === 'sub2api' ? `sub2api ${site.auth_mode === 'token' ? `导入登录态（refresh ${site.has_refresh_token ? '已配置' : '未配置'}）` : `账号登录（${escapeHtml(site.login_username || '-')}）`}` : site.login_enabled ? `认证增强监控（系统访问令牌 / 用户ID ${escapeHtml(site.access_user_id || '-')}）` : '公开分组监控'}</div></div>
     </div>
     <section class="mode-note ${site.login_enabled ? 'enabled' : ''}">
       ${site.platform === 'sub2api'
-        ? '当前站点使用 sub2api 普通用户账号登录，检测该账号实际可见的分组倍率和用户专属倍率。'
+        ? (site.auth_mode === 'token' ? '当前站点使用导入登录态检测该账号实际可见的分组倍率；适合开启 Turnstile 的上游。' : '当前站点使用 sub2api 普通用户账号登录，检测该账号实际可见的分组倍率和用户专属倍率。')
         : site.login_enabled
         ? '当前站点已开启认证增强监控，检测时会优先使用系统访问令牌采集该账号可见的隐藏用户分组或专属分组。'
         : '当前站点只监控公开 /api/user/groups。若该站存在特殊分组，可在编辑站点中开启认证增强监控。'}
@@ -414,10 +431,14 @@ function openDialog(site = null) {
     els.sitePlatform.value = site.platform || 'newapi';
     els.siteBaseUrl.value = site.base_url;
     els.siteInterval.value = site.interval_minutes;
+    els.siteAuthMode.value = site.auth_mode || 'password';
     els.siteLoginEnabled.checked = !!site.login_enabled;
     els.siteLoginUsername.value = site.login_username || '';
     els.siteLoginPassword.value = '';
     els.siteAccessToken.value = '';
+    els.siteSub2apiAccessToken.value = '';
+    els.siteRefreshToken.value = '';
+    els.siteTokenExpiresAt.value = site.token_expires_at || '';
     els.siteAccessUserId.value = site.access_user_id || '';
     els.siteEnabled.checked = !!site.enabled;
   } else {
@@ -427,10 +448,14 @@ function openDialog(site = null) {
     els.sitePlatform.value = 'newapi';
     els.siteBaseUrl.value = '';
     els.siteInterval.value = 3;
+    els.siteAuthMode.value = 'password';
     els.siteLoginEnabled.checked = false;
     els.siteLoginUsername.value = '';
     els.siteLoginPassword.value = '';
     els.siteAccessToken.value = '';
+    els.siteSub2apiAccessToken.value = '';
+    els.siteRefreshToken.value = '';
+    els.siteTokenExpiresAt.value = '';
     els.siteAccessUserId.value = '';
     els.siteEnabled.checked = true;
   }
@@ -507,6 +532,7 @@ els.addSiteBtn.addEventListener('click', () => openDialog());
 els.closeDialogBtn.addEventListener('click', () => els.dialog.close());
 els.siteLoginEnabled.addEventListener('change', () => setLoginFieldsVisible(els.siteLoginEnabled.checked));
 els.sitePlatform.addEventListener('change', updatePlatformFields);
+els.siteAuthMode.addEventListener('change', updatePlatformFields);
 els.refreshBtn.addEventListener('click', () => refreshAll().catch((err) => alert(err.message)));
 els.searchInput.addEventListener('input', renderSites);
 els.statusFilter.addEventListener('change', renderSites);
@@ -544,15 +570,20 @@ els.overviewSitesBody.addEventListener('click', handleSiteTableClick);
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const platform = els.sitePlatform.value;
+  const authMode = platform === 'sub2api' ? sub2apiAuthMode() : 'password';
   const payload = {
     name: els.siteName.value.trim(),
-    platform: els.sitePlatform.value,
+    platform,
     base_url: els.siteBaseUrl.value.trim(),
     interval_minutes: Math.max(1, Number(els.siteInterval.value || 3)),
-    login_enabled: els.sitePlatform.value === 'sub2api' ? true : els.siteLoginEnabled.checked,
-    login_username: els.siteLoginUsername.value.trim(),
-    login_password: els.siteLoginPassword.value,
-    access_token: els.siteAccessToken.value.trim(),
+    login_enabled: platform === 'sub2api' ? true : els.siteLoginEnabled.checked,
+    auth_mode: authMode,
+    login_username: authMode === 'password' ? els.siteLoginUsername.value.trim() : '',
+    login_password: authMode === 'password' ? els.siteLoginPassword.value : '',
+    access_token: platform === 'sub2api' ? els.siteSub2apiAccessToken.value.trim() : els.siteAccessToken.value.trim(),
+    refresh_token: authMode === 'token' ? els.siteRefreshToken.value.trim() : '',
+    token_expires_at: authMode === 'token' ? els.siteTokenExpiresAt.value.trim() : '',
     access_user_id: els.siteAccessUserId.value.trim(),
     enabled: els.siteEnabled.checked,
   };
@@ -577,8 +608,13 @@ els.testConnBtn.addEventListener('click', async () => {
     els.dialogMsg.textContent = '请先填写 Base URL';
     return;
   }
-  if (platform === 'sub2api' && (!els.siteLoginUsername.value.trim() || !els.siteLoginPassword.value)) {
+  const authMode = platform === 'sub2api' ? sub2apiAuthMode() : 'password';
+  if (platform === 'sub2api' && authMode === 'password' && (!els.siteLoginUsername.value.trim() || !els.siteLoginPassword.value)) {
     els.dialogMsg.textContent = '请填写 sub2api 用户邮箱和密码';
+    return;
+  }
+  if (platform === 'sub2api' && authMode === 'token' && !els.siteSub2apiAccessToken.value.trim()) {
+    els.dialogMsg.textContent = '请填写 sub2api auth_token';
     return;
   }
   els.dialogMsg.textContent = '检测中...';
@@ -588,8 +624,11 @@ els.testConnBtn.addEventListener('click', async () => {
       body: JSON.stringify({
         platform,
         base_url: baseUrl,
+        auth_mode: authMode,
         login_username: els.siteLoginUsername.value.trim(),
         login_password: els.siteLoginPassword.value,
+        access_token: els.siteSub2apiAccessToken.value.trim(),
+        refresh_token: els.siteRefreshToken.value.trim(),
       }),
     });
     els.dialogMsg.textContent = res.success
@@ -604,28 +643,38 @@ els.testLoginBtn.addEventListener('click', async () => {
   const baseUrl = els.siteBaseUrl.value.trim().replace(/\/+$/, '');
   const platform = els.sitePlatform.value;
   if (platform === 'sub2api') {
+    const authMode = sub2apiAuthMode();
     const username = els.siteLoginUsername.value.trim();
     const password = els.siteLoginPassword.value;
-    if (!baseUrl || !username || !password) {
+    const accessToken = els.siteSub2apiAccessToken.value.trim();
+    const refreshToken = els.siteRefreshToken.value.trim();
+    if (authMode === 'password' && (!baseUrl || !username || !password)) {
       els.dialogMsg.textContent = '请填写 Base URL、用户邮箱和密码';
       return;
     }
-    els.dialogMsg.textContent = 'sub2api 登录测试中...';
+    if (authMode === 'token' && (!baseUrl || !accessToken)) {
+      els.dialogMsg.textContent = '请填写 Base URL 和 auth_token';
+      return;
+    }
+    els.dialogMsg.textContent = authMode === 'token' ? 'sub2api 登录态测试中...' : 'sub2api 登录测试中...';
     try {
       const res = await api('/api/check-connection', {
         method: 'POST',
         body: JSON.stringify({
           platform,
           base_url: baseUrl,
+          auth_mode: authMode,
           login_username: username,
           login_password: password,
+          access_token: accessToken,
+          refresh_token: refreshToken,
         }),
       });
       els.dialogMsg.textContent = res.success
-        ? `登录成功：当前用户可见 ${res.groups_count} 个分组`
-        : `登录失败：${res.message}`;
+        ? `${authMode === 'token' ? '登录态可用' : '登录成功'}：当前用户可见 ${res.groups_count} 个分组`
+        : `${authMode === 'token' ? '登录态失败' : '登录失败'}：${res.message}`;
     } catch (err) {
-      els.dialogMsg.textContent = `登录失败：${err.message}`;
+      els.dialogMsg.textContent = `${authMode === 'token' ? '登录态失败' : '登录失败'}：${err.message}`;
     }
     return;
   }

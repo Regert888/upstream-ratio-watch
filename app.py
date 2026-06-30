@@ -79,10 +79,13 @@ def init_db() -> None:
                 interval_minutes INTEGER NOT NULL DEFAULT 3,
                 focus_keywords TEXT,
                 login_enabled INTEGER NOT NULL DEFAULT 0,
+                auth_mode TEXT NOT NULL DEFAULT 'password',
                 login_username TEXT,
                 login_password TEXT,
                 access_token TEXT,
                 access_user_id TEXT,
+                refresh_token TEXT,
+                token_expires_at TEXT,
                 status TEXT NOT NULL DEFAULT 'unknown',
                 last_error TEXT,
                 last_check_at TEXT,
@@ -171,6 +174,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE sites ADD COLUMN focus_keywords TEXT")
         if "login_enabled" not in columns:
             conn.execute("ALTER TABLE sites ADD COLUMN login_enabled INTEGER NOT NULL DEFAULT 0")
+        if "auth_mode" not in columns:
+            conn.execute("ALTER TABLE sites ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'password'")
         if "login_username" not in columns:
             conn.execute("ALTER TABLE sites ADD COLUMN login_username TEXT")
         if "login_password" not in columns:
@@ -179,13 +184,16 @@ def init_db() -> None:
             conn.execute("ALTER TABLE sites ADD COLUMN access_token TEXT")
         if "access_user_id" not in columns:
             conn.execute("ALTER TABLE sites ADD COLUMN access_user_id TEXT")
+        if "refresh_token" not in columns:
+            conn.execute("ALTER TABLE sites ADD COLUMN refresh_token TEXT")
+        if "token_expires_at" not in columns:
+            conn.execute("ALTER TABLE sites ADD COLUMN token_expires_at TEXT")
         if "current_login_groups_json" not in columns:
             conn.execute("ALTER TABLE sites ADD COLUMN current_login_groups_json TEXT")
         if "login_last_error" not in columns:
             conn.execute("ALTER TABLE sites ADD COLUMN login_last_error TEXT")
         if "login_last_check_at" not in columns:
             conn.execute("ALTER TABLE sites ADD COLUMN login_last_check_at TEXT")
-        conn.execute("UPDATE sites SET login_username = '', login_password = ''")
         setting_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(notification_settings)").fetchall()
@@ -415,6 +423,23 @@ def request_json(url: str, headers: Optional[Dict[str, str]] = None, payload: Op
         return False, {"error": str(exc)}, str(exc)
 
 
+def is_sub2api_auth_error(payload: Any, error: Optional[str] = None) -> bool:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("groups"), dict) and is_sub2api_auth_error(payload["groups"], error):
+            return True
+        if isinstance(payload.get("refresh"), dict) and is_sub2api_auth_error(payload["refresh"], error):
+            return True
+        status = payload.get("status")
+        raw = str(payload.get("raw") or "")
+        message = str(payload.get("message") or payload.get("error") or "")
+        code = str(payload.get("code") or "")
+        if status in {401, 403}:
+            return True
+        text = f"{raw} {message} {code}".lower()
+        return any(word in text for word in ("unauthorized", "forbidden", "token", "jwt", "auth"))
+    return bool(error and error.startswith(("HTTP 401", "HTTP 403")))
+
+
 def unwrap_sub2api_response(payload: Any) -> Tuple[bool, Any, Optional[str]]:
     if not isinstance(payload, dict):
         return False, payload, "响应不是 JSON 对象"
@@ -444,11 +469,35 @@ def sub2api_login(base_url: str, username: str, password: str) -> Tuple[bool, st
     return True, token, payload if isinstance(payload, dict) else {"raw": payload}, None
 
 
-def fetch_sub2api_user_groups(base_url: str, username: str, password: str) -> Tuple[bool, Dict[str, Any], Optional[str]]:
-    login_ok, token, login_payload, login_error = sub2api_login(base_url, username, password)
-    if not login_ok:
-        return False, {"login": login_payload}, login_error or "登录失败"
-    headers = {"Authorization": f"Bearer {token}"}
+def sub2api_refresh_token(base_url: str, refresh_token: str) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+    token = (refresh_token or "").strip()
+    if not token:
+        return False, {}, "refresh_token 为空"
+    ok, payload, error = request_json(
+        f"{normalize_base_url(base_url)}/api/v1/auth/refresh",
+        payload={"refresh_token": token},
+        method="POST",
+    )
+    if not ok:
+        return False, payload if isinstance(payload, dict) else {"raw": payload}, error
+    success, data, message = unwrap_sub2api_response(payload)
+    if not success or not isinstance(data, dict):
+        return False, payload if isinstance(payload, dict) else {"raw": payload}, message or "刷新登录态失败"
+    return True, data, None
+
+
+def sub2api_token_headers(access_token: str) -> Dict[str, str]:
+    token = (access_token or "").strip()
+    if token.lower().startswith("bearer "):
+        return {"Authorization": token}
+    return {"Authorization": f"Bearer {token}"}
+
+
+def fetch_sub2api_groups_by_token(base_url: str, access_token: str) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+    token = (access_token or "").strip()
+    if not token:
+        return False, {}, "auth_token 为空"
+    headers = sub2api_token_headers(token)
     groups_ok, groups_payload, groups_error = request_json(
         f"{normalize_base_url(base_url)}/api/v1/groups/available",
         headers=headers,
@@ -475,6 +524,40 @@ def fetch_sub2api_user_groups(base_url: str, username: str, password: str) -> Tu
         "user_rates": rates_data,
         "rates_error": None if rates_ok else rates_error,
     }, None
+
+
+def fetch_sub2api_user_groups(
+    base_url: str,
+    username: str = "",
+    password: str = "",
+    auth_mode: str = "password",
+    access_token: str = "",
+    refresh_token: str = "",
+) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+    mode = (auth_mode or "password").strip().lower()
+    if mode == "token":
+        ok, payload, error_message = fetch_sub2api_groups_by_token(base_url, access_token)
+        if ok or not refresh_token or not is_sub2api_auth_error(payload, error_message):
+            return ok, payload, error_message
+        refresh_ok, refreshed, refresh_error = sub2api_refresh_token(base_url, refresh_token)
+        if not refresh_ok:
+            return False, {"groups": payload, "refresh": refreshed}, refresh_error or error_message or "登录态刷新失败"
+        new_access_token = str(refreshed.get("access_token") or "").strip()
+        if not new_access_token:
+            return False, {"refresh": refreshed}, "刷新成功但没有返回 access_token"
+        ok, payload, error_message = fetch_sub2api_groups_by_token(base_url, new_access_token)
+        if isinstance(payload, dict):
+            payload["refreshed_auth"] = {
+                "access_token": new_access_token,
+                "refresh_token": str(refreshed.get("refresh_token") or refresh_token).strip(),
+                "expires_in": refreshed.get("expires_in"),
+            }
+        return ok, payload, error_message
+
+    login_ok, token, login_payload, login_error = sub2api_login(base_url, username, password)
+    if not login_ok:
+        return False, {"login": login_payload}, login_error or "登录失败"
+    return fetch_sub2api_groups_by_token(base_url, token)
 
 
 def fetch_newapi_groups_with_access_token(base_url: str, access_token: str, user_id: str = "") -> Tuple[bool, Dict[str, Any], Optional[str]]:
@@ -529,8 +612,22 @@ def probe_newapi_groups(base_url: str) -> Dict[str, Any]:
     }
 
 
-def probe_sub2api_groups(base_url: str, username: str, password: str) -> Dict[str, Any]:
-    ok, payload, error_message = fetch_sub2api_user_groups(base_url, username, password)
+def probe_sub2api_groups(
+    base_url: str,
+    username: str = "",
+    password: str = "",
+    auth_mode: str = "password",
+    access_token: str = "",
+    refresh_token: str = "",
+) -> Dict[str, Any]:
+    ok, payload, error_message = fetch_sub2api_user_groups(
+        base_url,
+        username=username,
+        password=password,
+        auth_mode=auth_mode,
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
     if not ok:
         return {
             "success": False,
@@ -932,8 +1029,11 @@ def collect_site_groups(site: Dict[str, Any]) -> Tuple[bool, Dict[str, Dict[str,
     if platform == "sub2api":
         ok, payload, error_message = fetch_sub2api_user_groups(
             site["base_url"],
-            site.get("login_username") or "",
-            site.get("login_password") or "",
+            username=site.get("login_username") or "",
+            password=site.get("login_password") or "",
+            auth_mode=site.get("auth_mode") or "password",
+            access_token=site.get("access_token") or "",
+            refresh_token=site.get("refresh_token") or "",
         )
         groups = parse_sub2api_groups(payload.get("data"), payload.get("user_rates")) if ok else {}
         return ok, groups, payload, "/api/v1/groups/available", error_message
@@ -979,6 +1079,10 @@ def detect_site(site_id: int) -> Dict[str, Any]:
     login_groups: Dict[str, Dict[str, Any]] = {}
     login_groups_json: Optional[str] = None
     login_error: Optional[str] = None
+    refreshed_auth = payload.get("refreshed_auth") if isinstance(payload, dict) else None
+    if refreshed_auth and isinstance(payload, dict):
+        payload = dict(payload)
+        payload.pop("refreshed_auth", None)
 
     db_execute(
         """
@@ -1053,6 +1157,19 @@ def detect_site(site_id: int) -> Dict[str, Any]:
 
     next_check_at = next_check_iso(int(site["interval_minutes"] or DEFAULT_INTERVAL_MINUTES))
     effective_status = "warning" if login_error else "ok"
+    refreshed_access_token = ""
+    refreshed_refresh_token = ""
+    refreshed_expires_at = None
+    if isinstance(refreshed_auth, dict):
+        refreshed_access_token = str(refreshed_auth.get("access_token") or "").strip()
+        refreshed_refresh_token = str(refreshed_auth.get("refresh_token") or "").strip()
+        expires_in = refreshed_auth.get("expires_in")
+        try:
+            refreshed_expires_at = (
+                datetime.now(timezone.utc).astimezone() + timedelta(seconds=int(expires_in))
+            ).isoformat(timespec="seconds") if expires_in is not None else None
+        except (TypeError, ValueError):
+            refreshed_expires_at = None
     db_execute(
         """
         UPDATE sites
@@ -1065,6 +1182,9 @@ def detect_site(site_id: int) -> Dict[str, Any]:
             current_login_groups_json = COALESCE(?, current_login_groups_json),
             login_last_error = ?,
             login_last_check_at = ?,
+            access_token = COALESCE(NULLIF(?, ''), access_token),
+            refresh_token = COALESCE(NULLIF(?, ''), refresh_token),
+            token_expires_at = COALESCE(?, token_expires_at),
             updated_at = ?
         WHERE id = ?
         """,
@@ -1076,6 +1196,9 @@ def detect_site(site_id: int) -> Dict[str, Any]:
             login_groups_json,
             login_error,
             checked_at if site.get("login_enabled") else None,
+            refreshed_access_token,
+            refreshed_refresh_token,
+            refreshed_expires_at,
             checked_at,
             site_id,
         ),
@@ -1189,9 +1312,12 @@ def site_summary(site: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": bool(site["enabled"]),
         "interval_minutes": site["interval_minutes"],
         "login_enabled": bool(site.get("login_enabled")),
+        "auth_mode": site.get("auth_mode") or "password",
         "login_username": site.get("login_username") or "",
         "has_login_password": bool(site.get("login_password")),
         "has_access_token": bool(site.get("access_token")),
+        "has_refresh_token": bool(site.get("refresh_token")),
+        "token_expires_at": site.get("token_expires_at") or "",
         "access_user_id": site.get("access_user_id") or "",
         "login_last_error": site.get("login_last_error"),
         "login_last_check_at": site.get("login_last_check_at"),
@@ -1342,8 +1468,11 @@ class Handler(BaseHTTPRequestHandler):
                 if platform == "sub2api":
                     result = probe_sub2api_groups(
                         base_url,
-                        str(body.get("login_username") or "").strip(),
-                        str(body.get("login_password") or ""),
+                        username=str(body.get("login_username") or "").strip(),
+                        password=str(body.get("login_password") or ""),
+                        auth_mode=str(body.get("auth_mode") or "password").strip().lower(),
+                        access_token=str(body.get("access_token") or "").strip(),
+                        refresh_token=str(body.get("refresh_token") or "").strip(),
                     )
                 else:
                     result = probe_newapi_groups(base_url)
@@ -1378,20 +1507,27 @@ class Handler(BaseHTTPRequestHandler):
                 login_password = str(body.get("login_password") or "")
                 access_token = str(body.get("access_token") or "").strip()
                 access_user_id = str(body.get("access_user_id") or "").strip()
+                refresh_token = str(body.get("refresh_token") or "").strip()
+                token_expires_at = str(body.get("token_expires_at") or "").strip()
+                auth_mode = str(body.get("auth_mode") or "password").strip().lower()
                 if platform not in {"newapi", "sub2api"}:
                     return json_response(self, {"success": False, "message": "platform invalid"}, 400)
+                if auth_mode not in {"password", "token"}:
+                    return json_response(self, {"success": False, "message": "auth_mode invalid"}, 400)
                 if not name or not base_url:
                     return json_response(self, {"success": False, "message": "name/base_url required"}, 400)
                 if platform == "newapi" and login_enabled and (not access_token or not access_user_id):
                     return json_response(self, {"success": False, "message": "使用系统访问令牌时需要填写 NewAPI 用户 ID"}, 400)
-                if platform == "sub2api" and (not login_username or not login_password):
+                if platform == "sub2api" and auth_mode == "password" and (not login_username or not login_password):
                     return json_response(self, {"success": False, "message": "sub2api 需要填写普通用户邮箱和密码"}, 400)
+                if platform == "sub2api" and auth_mode == "token" and not access_token:
+                    return json_response(self, {"success": False, "message": "导入登录态时需要填写 auth_token"}, 400)
                 now = utc_now_iso()
                 site_id = db_execute(
                     """
                     INSERT INTO sites
-                    (name, base_url, platform, enabled, interval_minutes, login_enabled, login_username, login_password, access_token, access_user_id, status, last_error, last_check_at, next_check_at, consecutive_failures, current_groups_json, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, NULL, ?, 0, NULL, ?, ?)
+                    (name, base_url, platform, enabled, interval_minutes, login_enabled, auth_mode, login_username, login_password, access_token, access_user_id, refresh_token, token_expires_at, status, last_error, last_check_at, next_check_at, consecutive_failures, current_groups_json, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, NULL, ?, 0, NULL, ?, ?)
                     """,
                     (
                         name,
@@ -1400,10 +1536,13 @@ class Handler(BaseHTTPRequestHandler):
                         1 if enabled else 0,
                         interval,
                         1 if (login_enabled or platform == "sub2api") else 0,
-                        login_username if platform == "sub2api" else "",
-                        login_password if platform == "sub2api" else "",
-                        access_token if platform == "newapi" and login_enabled else "",
+                        auth_mode if platform == "sub2api" else "password",
+                        login_username if platform == "sub2api" and auth_mode == "password" else "",
+                        login_password if platform == "sub2api" and auth_mode == "password" else "",
+                        access_token if ((platform == "newapi" and login_enabled) or (platform == "sub2api" and auth_mode == "token")) else "",
                         access_user_id if platform == "newapi" and login_enabled else "",
+                        refresh_token if platform == "sub2api" and auth_mode == "token" else "",
+                        token_expires_at if platform == "sub2api" and auth_mode == "token" else "",
                         next_check_iso(interval),
                         now,
                         now,
@@ -1469,34 +1608,66 @@ class Handler(BaseHTTPRequestHandler):
                 login_password = str(body.get("login_password") or "")
                 access_token = str(body.get("access_token") or "").strip()
                 access_user_id = str(body.get("access_user_id") or "").strip()
+                refresh_token = str(body.get("refresh_token") or "").strip()
+                token_expires_at = str(body.get("token_expires_at") or "").strip()
+                auth_mode = str(body.get("auth_mode") or site.get("auth_mode") or "password").strip().lower()
                 existing_access_token = site.get("access_token") or ""
                 existing_access_user_id = site.get("access_user_id") or ""
+                existing_refresh_token = site.get("refresh_token") or ""
                 existing_username = site.get("login_username") or ""
                 existing_password = site.get("login_password") or ""
+                if auth_mode not in {"password", "token"}:
+                    return json_response(self, {"success": False, "message": "auth_mode invalid"}, 400)
                 if target_platform == "newapi":
                     has_token_after_update = bool(access_token or existing_access_token)
                     has_user_id_after_update = bool(access_user_id or existing_access_user_id)
                     if login_enabled and (not has_token_after_update or not has_user_id_after_update):
                         return json_response(self, {"success": False, "message": "使用系统访问令牌时需要填写 NewAPI 用户 ID"}, 400)
-                if target_platform == "sub2api" and (not (login_username or existing_username) or not (login_password or existing_password)):
+                if target_platform == "sub2api" and auth_mode == "password" and (not (login_username or existing_username) or not (login_password or existing_password)):
                     return json_response(self, {"success": False, "message": "sub2api 需要填写普通用户邮箱和密码"}, 400)
+                if target_platform == "sub2api" and auth_mode == "token" and not (access_token or existing_access_token):
+                    return json_response(self, {"success": False, "message": "导入登录态时需要填写 auth_token"}, 400)
                 fields.append("login_enabled = ?")
                 params.append(1 if (login_enabled or target_platform == "sub2api") else 0)
+                fields.append("auth_mode = ?")
+                params.append(auth_mode if target_platform == "sub2api" else "password")
                 if target_platform == "sub2api":
-                    if login_username:
+                    if auth_mode == "password" and login_username:
                         fields.append("login_username = ?")
                         params.append(login_username)
-                    if login_password:
+                    if auth_mode == "password" and login_password:
                         fields.append("login_password = ?")
                         params.append(login_password)
-                    fields.append("access_token = ?")
-                    params.append("")
+                    if auth_mode == "token":
+                        fields.append("login_username = ?")
+                        params.append("")
+                        fields.append("login_password = ?")
+                        params.append("")
+                        if access_token:
+                            fields.append("access_token = ?")
+                            params.append(access_token)
+                        if refresh_token or not existing_refresh_token:
+                            fields.append("refresh_token = ?")
+                            params.append(refresh_token)
+                        fields.append("token_expires_at = ?")
+                        params.append(token_expires_at)
+                    else:
+                        fields.append("access_token = ?")
+                        params.append("")
+                        fields.append("refresh_token = ?")
+                        params.append("")
+                        fields.append("token_expires_at = ?")
+                        params.append("")
                     fields.append("access_user_id = ?")
                     params.append("")
                 else:
                     fields.append("login_username = ?")
                     params.append("")
                     fields.append("login_password = ?")
+                    params.append("")
+                    fields.append("refresh_token = ?")
+                    params.append("")
+                    fields.append("token_expires_at = ?")
                     params.append("")
                     if not login_enabled:
                         fields.append("access_token = ?")

@@ -276,8 +276,15 @@
         </div>
       </div>
       <div id="sub2apiAuthSection" class="form-section hidden">
-        <p class="field-help">sub2api 使用普通用户邮箱和密码登录后，监控该账号实际可见的分组倍率和用户专属倍率。</p>
-        <div class="login-fields">
+        <p class="field-help">sub2api 支持普通账号登录，也支持导入浏览器已登录状态。开启 Turnstile 的站点建议先在浏览器正常登录，再导入登录态。</p>
+        <label class="field">
+          <span>认证方式</span>
+          <select id="siteAuthMode" class="input">
+            <option value="password">账号密码登录</option>
+            <option value="token">导入登录态</option>
+          </select>
+        </label>
+        <div id="sub2apiPasswordFields" class="login-fields">
           <label class="field">
             <span>用户邮箱</span>
             <input id="siteLoginUsername" class="input" autocomplete="username" placeholder="user@example.com" />
@@ -285,6 +292,21 @@
           <label class="field">
             <span>用户密码</span>
             <input id="siteLoginPassword" class="input" type="password" autocomplete="current-password" placeholder="编辑时留空表示不修改密码" />
+          </label>
+        </div>
+        <div id="sub2apiTokenFields" class="login-fields hidden">
+          <p class="field-help">浏览器登录 sub2api 后，打开开发者工具，在 localStorage（本地存储）里复制 auth_token、refresh_token、token_expires_at。</p>
+          <label class="field">
+            <span>auth_token</span>
+            <input id="siteSub2apiAccessToken" class="input" type="password" autocomplete="off" placeholder="编辑时留空表示不修改 auth_token" />
+          </label>
+          <label class="field">
+            <span>refresh_token</span>
+            <input id="siteRefreshToken" class="input" type="password" autocomplete="off" placeholder="可选，填写后 token 过期可自动刷新" />
+          </label>
+          <label class="field">
+            <span>token_expires_at</span>
+            <input id="siteTokenExpiresAt" class="input" autocomplete="off" placeholder="可选，例如 localStorage（本地存储）里的原始值" />
           </label>
         </div>
       </div>
