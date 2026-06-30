@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -28,13 +29,23 @@ HTTP_TIMEOUT_SECONDS = 15
 SCAN_INTERVAL_SECONDS = 10
 SERVER_HOST = os.getenv("HOST", "127.0.0.1")
 SERVER_PORT = int(os.getenv("PORT", "8000"))
+APP_TIMEZONE_NAME = os.getenv("APP_TIMEZONE") or os.getenv("TZ") or "Asia/Shanghai"
+try:
+    APP_TIMEZONE = ZoneInfo(APP_TIMEZONE_NAME)
+except ZoneInfoNotFoundError:
+    APP_TIMEZONE_NAME = "Asia/Shanghai"
+    APP_TIMEZONE = timezone(timedelta(hours=8), APP_TIMEZONE_NAME)
 
 DB_LOCK = threading.RLock()
 STOP_EVENT = threading.Event()
 
 
+def app_now() -> datetime:
+    return datetime.now(APP_TIMEZONE)
+
+
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    return app_now().isoformat(timespec="seconds")
 
 
 def parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
@@ -374,7 +385,7 @@ def stable_hash(obj: Any) -> str:
 
 
 def next_check_iso(interval_minutes: int) -> str:
-    return (datetime.now().astimezone() + timedelta(minutes=max(MIN_INTERVAL_MINUTES, interval_minutes))).isoformat(timespec="seconds")
+    return (app_now() + timedelta(minutes=max(MIN_INTERVAL_MINUTES, interval_minutes))).isoformat(timespec="seconds")
 
 
 def fetch_newapi_groups(base_url: str) -> Tuple[bool, Dict[str, Any], Optional[str]]:
@@ -994,7 +1005,12 @@ def fmt_local_time_for_message(value: str) -> str:
     dt = parse_iso_dt(value)
     if not dt:
         return value
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local_dt = dt.astimezone(APP_TIMEZONE)
+    tz_name = local_dt.tzname() or ""
+    suffix = f" {tz_name}" if tz_name else ""
+    return local_dt.strftime("%Y-%m-%d %H:%M:%S") + suffix
 
 
 def platform_label(site: Dict[str, Any]) -> str:
@@ -1241,7 +1257,7 @@ def detect_site(site_id: int) -> Dict[str, Any]:
         expires_in = refreshed_auth.get("expires_in")
         try:
             refreshed_expires_at = (
-                datetime.now(timezone.utc).astimezone() + timedelta(seconds=int(expires_in))
+                app_now() + timedelta(seconds=int(expires_in))
             ).isoformat(timespec="seconds") if expires_in is not None else None
         except (TypeError, ValueError):
             refreshed_expires_at = None
@@ -1292,7 +1308,7 @@ def detect_site(site_id: int) -> Dict[str, Any]:
 def schedule_worker() -> None:
     while not STOP_EVENT.is_set():
         try:
-            now = datetime.now().astimezone()
+            now = app_now()
             due_sites = db_query_all(
                 """
                 SELECT * FROM sites
@@ -1420,7 +1436,7 @@ def overview_payload() -> Dict[str, Any]:
         "sites_failed": sum(1 for s in sites if s["status"] in {"failed", "warning"}),
         "changes_today": db_query_one(
             "SELECT COUNT(*) AS count FROM changes WHERE created_at >= ?",
-            (datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds"),),
+            (app_now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds"),),
         ) or {"count": 0},
     }
     return {

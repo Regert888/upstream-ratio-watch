@@ -87,6 +87,15 @@ http://服务器IP:18000
 
 这里会保存 SQLite 数据库、站点配置、系统访问令牌、SMTP 配置和监控历史。升级或重建容器前，请保留这个目录。
 
+默认时区是北京时间：
+
+```yaml
+TZ: Asia/Shanghai
+APP_TIMEZONE: Asia/Shanghai
+```
+
+`APP_TIMEZONE` 用于控制监控记录和推送消息里的时间显示。如果部署在其他时区，可以在 `docker-compose.yml` 里改成对应的 IANA 时区名称。
+
 ## 本地启动
 
 ```bash

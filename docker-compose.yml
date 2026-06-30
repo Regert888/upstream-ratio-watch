@@ -6,6 +6,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8000
+      TZ: Asia/Shanghai
+      APP_TIMEZONE: Asia/Shanghai
     ports:
       - "8000:8000"
     volumes:
